@@ -67,7 +67,7 @@ jobs:
   smoke:
     name: Health check
     needs: deploy
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.NEXT_PUBLIC_SITE_URL != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Check /api/health
