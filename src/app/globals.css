@@ -346,4 +346,87 @@
 @layer utilities {
   .scrollbar-none { scrollbar-width: none; }
   .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  /* أقسام طويلة: المتصفح يتخطّى رسم ما هو خارج الشاشة (أداء أفضل على الجوال) */
+  .k-lazy-section { content-visibility: auto; contain-intrinsic-size: 1px 720px; }
+
+  .k-numeric { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: embed; }
+}
+
+/* ============================================================
+   الجزء 3 — هوية بصرية إضافية: تدرّجات، بطاقات زجاجية،
+   وحركات صفحة الهبوط والمصادقة.
+   ============================================================ */
+
+@theme {
+  --color-primary-glow: rgb(147 51 234 / 0.35);
+  --shadow-float: 0 24px 48px -24px rgb(28 25 23 / 0.28);
+  --gradient-brand: linear-gradient(120deg, #c084fc 0%, #9333ea 45%, #6d28d9 100%);
+  --gradient-brand-soft: linear-gradient(120deg, rgb(192 132 252 / 0.16) 0%, rgb(147 51 234 / 0.10) 100%);
+}
+
+@layer utilities {
+  /* نص بتدرّج علامة المنصة */
+  .k-gradient-text {
+    background-image: var(--gradient-brand);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* بطاقة زجاجية */
+  .k-glass {
+    background-color: color-mix(in oklab, var(--color-surface) 78%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+
+  /* شبكة خفيفة كخلفية للأقسام */
+  .k-grid-bg {
+    background-image:
+      linear-gradient(to right, var(--color-border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-border) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+    -webkit-mask-image: radial-gradient(70% 60% at 50% 40%, #000 30%, transparent 100%);
+    opacity: 0.5;
+  }
+
+  /* لوحة نداء أخير */
+  .k-cta {
+    background-image: var(--gradient-brand-soft), radial-gradient(80% 120% at 100% 0%, rgb(245 158 11 / 0.12), transparent 60%);
+  }
+
+  /* لوحة صفحات المصادقة */
+  .k-auth-panel {
+    background-image:
+      radial-gradient(90% 70% at 90% 0%, rgb(168 85 247 / 0.55), transparent 60%),
+      radial-gradient(80% 60% at 0% 100%, rgb(245 158 11 / 0.35), transparent 60%),
+      linear-gradient(150deg, #2a0f4a 0%, #150a26 55%, #0c0a09 100%);
+  }
+}
+
+@layer base {
+  @keyframes k-rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes k-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-10px); }
+  }
+  @keyframes k-orb {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.75; }
+    50%      { transform: translate3d(12px, -16px, 0) scale(1.08); opacity: 1; }
+  }
+  @keyframes k-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.7); }
+  }
+
+  .k-anim-rise { animation: k-rise var(--duration-slower) var(--ease-enter) both; }
+  .k-float     { animation: k-float 6s ease-in-out infinite; }
+  .k-orb       { animation: k-orb 12s ease-in-out infinite; }
+  .k-orb-2     { animation: k-orb 15s ease-in-out infinite reverse; }
+  .k-pulse-dot { animation: k-dot 2.2s ease-in-out infinite; }
 }

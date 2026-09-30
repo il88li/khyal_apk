@@ -1,9 +1,11 @@
 'use client';
 import Image from 'next/image';
+import Link from 'next/link';
 import {
   forwardRef, useEffect, useId, useRef,
   type ButtonHTMLAttributes, type InputHTMLAttributes,
-  type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes
+  type ReactNode, type TextareaHTMLAttributes, type SelectHTMLAttributes,
+  type AnchorHTMLAttributes
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn, initials } from '@/lib/utils';
@@ -64,6 +66,47 @@ const BTN_SIZE: Record<ButtonSize, string> = {
   lg: 'h-12 px-6 text-[var(--text-md)] gap-2.5 rounded-[var(--radius-xl)]'
 };
 
+/** صفوف الأصناف المشتركة بين Button و LinkButton */
+const BTN_BASE =
+  'inline-flex items-center justify-center font-[var(--font-weight-semibold)] ' +
+  'select-none whitespace-nowrap ' +
+  'transition-[background-color,border-color,color,box-shadow,transform] ' +
+  'duration-[var(--duration-fast)] ease-[var(--ease-standard)] ' +
+  'active:scale-[0.98] disabled:active:scale-100 disabled:opacity-60 disabled:cursor-not-allowed';
+
+function btnClass(variant: ButtonVariant, size: ButtonSize, fullWidth?: boolean, className?: string) {
+  return cn(
+    BTN_BASE,
+    BTN_VARIANT[variant],
+    variant !== 'link' && BTN_SIZE[size],
+    variant === 'link' && 'h-auto',
+    fullWidth && 'w-full',
+    className
+  );
+}
+
+/** رابط بمظهر الزر — يتجنّب تداخل <a> و<button> غير الصالح في HTML */
+export interface LinkButtonProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  fullWidth?: boolean;
+  leadingIcon?: ReactNode;
+  trailingIcon?: ReactNode;
+}
+
+export function LinkButton({
+  href, variant = 'primary', size = 'md', fullWidth, leadingIcon, trailingIcon, className, children, ...rest
+}: LinkButtonProps) {
+  return (
+    <Link href={href} className={btnClass(variant, size, fullWidth, className)} {...rest}>
+      {leadingIcon ? <span className="inline-flex shrink-0">{leadingIcon}</span> : null}
+      <span className="truncate">{children}</span>
+      {trailingIcon ? <span className="inline-flex shrink-0">{trailingIcon}</span> : null}
+    </Link>
+  );
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading, fullWidth, leadingIcon, trailingIcon,
     className, children, disabled, type = 'button', ...rest }, ref
@@ -72,18 +115,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   return (
     <button
       ref={ref} type={type} disabled={isDisabled} aria-busy={loading || undefined}
-      className={cn(
-        'inline-flex items-center justify-center font-[var(--font-weight-semibold)]',
-        'select-none whitespace-nowrap',
-        'transition-[background-color,border-color,color,box-shadow,transform]',
-        'duration-[var(--duration-fast)] ease-[var(--ease-standard)]',
-        'active:scale-[0.98] disabled:active:scale-100 disabled:opacity-60 disabled:cursor-not-allowed',
-        BTN_VARIANT[variant],
-        variant !== 'link' && BTN_SIZE[size],
-        variant === 'link' && 'h-auto',
-        fullWidth && 'w-full',
-        className
-      )}
+      className={btnClass(variant, size, fullWidth, className)}
       {...rest}
     >
       {loading && <Spinner size={size === 'sm' ? 14 : size === 'lg' ? 20 : 16} />}
@@ -196,7 +228,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   const areaId = id ?? autoId;
   const describedBy =
     [hint ? `${areaId}-hint` : null, error ? `${areaId}-err` : null].filter(Boolean).join(' ') || undefined;
-  const handleInput: React.FormEventHandler<HTMLTextAreaElement> = (e) => {
+  const handleInput: NonNullable<TextareaProps['onInput']> = (e) => {
     if (autoResize) {
       const t = e.currentTarget;
       t.style.height = 'auto';

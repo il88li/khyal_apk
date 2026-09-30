@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
-import { Avatar, Badge, Button, Drawer, IconButton } from './ui';
+import type { ReactNode } from 'react';
+import { Avatar, Button, Drawer, IconButton } from './ui';
 import { cn, formatCount } from '@/lib/utils';
 import { useStore } from '@/lib/store';
 import { S } from '@/lib/strings';

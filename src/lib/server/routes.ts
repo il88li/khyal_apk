@@ -7,10 +7,22 @@ import { auth, requireUser, hashPassword } from './auth';
 export const ok = <T>(data: T, init?: ResponseInit) => NextResponse.json(data, init);
 export const err = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
-/* ---------- محدّد الطلبات (في الذاكرة — كافٍ لـ single-region) ---------- */
+/* ---------- محدّد الطلبات ----------
+   في الذاكرة: يعمل لكل نسخة (instance). للتحمّل الضخم على عدة نسخ،
+   استبدل الخريطة بمخزن مشترك (Redis/Upstash) بنفس الواجهة.
+   نُنظّف الدلاء المنتهية دورياً حتى لا تتضخّم الذاكرة مع كثرة الزوار. */
 const buckets = new Map<string, { count: number; reset: number }>();
+let lastSweep = 0;
+
+function sweep(now: number) {
+  if (now - lastSweep < 60_000) return;
+  lastSweep = now;
+  for (const [k, v] of buckets) if (v.reset < now) buckets.delete(k);
+}
+
 export function rateLimit(key: string, max: number, windowMs: number): boolean {
   const now = Date.now();
+  sweep(now);
   const b = buckets.get(key);
   if (!b || b.reset < now) {
     buckets.set(key, { count: 1, reset: now + windowMs });
@@ -224,58 +236,79 @@ export async function handleDeletePost(id: string) {
 /* ============================================================
    الجزء 42 — التفاعلات
    ============================================================ */
+/* الإعجاب/الحفظ يعتمدان على القيد الفريد (userId, postId) لضمان العدّ مرة واحدة،
+   بلا معاملات ثقيلة ولا ازدواج في العدّاد عند تكرار الطلب. */
 export async function handleToggleLike(postId: string, on: boolean) {
   const session = await requireUser();
+  const post = await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
+  if (!post) return err('المنشور غير موجود', 404);
+
   if (on) {
-    await prisma.$transaction([
-      prisma.like.upsert({
-        where: { userId_postId: { userId: session.id, postId } },
-        create: { userId: session.id, postId },
-        update: {}
-      }),
-      prisma.post.update({ where: { id: postId }, data: { likeCount: { increment: 1 } } }),
-      prisma.notification.create({
-        data: {
-          userId: (await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } }))?.authorId ?? '',
-          actorId: session.id,
-          type: 'like',
-          postId
-        }
-      }).catch(() => null)
-    ]);
-  } else {
-    const existing = await prisma.like.findUnique({ where: { userId_postId: { userId: session.id, postId } } });
-    if (existing) {
-      await prisma.$transaction([
-        prisma.like.delete({ where: { id: existing.id } }),
-        prisma.post.update({ where: { id: postId }, data: { likeCount: { decrement: 1 } } })
-      ]);
+    const created = await prisma.like
+      .create({ data: { userId: session.id, postId } })
+      .catch(() => null);
+    if (!created) return ok({ ok: true, changed: false });
+
+    await prisma.post.update({ where: { id: postId }, data: { likeCount: { increment: 1 } } });
+    if (post.authorId !== session.id) {
+      await prisma.notification.create({
+        data: { userId: post.authorId, actorId: session.id, type: 'like', postId }
+      }).catch(() => null);
     }
+  } else {
+    const removed = await prisma.like
+      .delete({ where: { userId_postId: { userId: session.id, postId } } })
+      .catch(() => null);
+    if (!removed) return ok({ ok: true, changed: false });
+    await prisma.post.update({ where: { id: postId }, data: { likeCount: { decrement: 1 } } });
   }
-  return ok({ ok: true });
+  return ok({ ok: true, changed: true });
 }
 
 export async function handleToggleSave(postId: string, on: boolean) {
   const session = await requireUser();
   if (on) {
-    await prisma.$transaction([
-      prisma.bookmark.upsert({
-        where: { userId_postId: { userId: session.id, postId } },
-        create: { userId: session.id, postId },
-        update: {}
-      }),
-      prisma.post.update({ where: { id: postId }, data: { saveCount: { increment: 1 } } })
-    ]);
+    const created = await prisma.bookmark
+      .create({ data: { userId: session.id, postId } })
+      .catch(() => null);
+    if (!created) return ok({ ok: true, changed: false });
+    await prisma.post.update({ where: { id: postId }, data: { saveCount: { increment: 1 } } });
   } else {
-    const existing = await prisma.bookmark.findUnique({ where: { userId_postId: { userId: session.id, postId } } });
-    if (existing) {
-      await prisma.$transaction([
-        prisma.bookmark.delete({ where: { id: existing.id } }),
-        prisma.post.update({ where: { id: postId }, data: { saveCount: { decrement: 1 } } })
-      ]);
-    }
+    const removed = await prisma.bookmark
+      .delete({ where: { userId_postId: { userId: session.id, postId } } })
+      .catch(() => null);
+    if (!removed) return ok({ ok: true, changed: false });
+    await prisma.post.update({ where: { id: postId }, data: { saveCount: { decrement: 1 } } });
   }
-  return ok({ ok: true });
+  return ok({ ok: true, changed: true });
+}
+
+/* قائمة المحفوظات — مرتّبة حسب وقت الحفظ، بترقيم مؤشّري */
+export async function handleBookmarks(url: URL) {
+  const session = await requireUser();
+  const cursor = url.searchParams.get('cursor');
+  const take = 24;
+
+  const rows = await prisma.bookmark.findMany({
+    where: { userId: session.id },
+    orderBy: { createdAt: 'desc' },
+    take: take + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    include: { post: { include: POST_INCLUDE } }
+  });
+
+  const hasMore = rows.length > take;
+  const slice = hasMore ? rows.slice(0, take) : rows;
+  return ok({
+    items: slice.map((b) => ({
+      ...b.post,
+      createdAt: b.post.createdAt.toISOString(),
+      updatedAt: b.post.updatedAt.toISOString(),
+      liked: false,
+      saved: true
+    })),
+    nextCursor: hasMore ? slice[slice.length - 1]?.id ?? null : null
+  });
 }
 
 export async function handleCopy(postId: string) {
@@ -361,20 +394,29 @@ export async function handleSearch(url: URL) {
 }
 
 export async function handleUserProfile(username: string) {
+  const session = await auth();
+  const viewerId = session?.user?.id ?? null;
+
   const user = await prisma.user.findUnique({
     where: { username },
-    include: {
-      _count: { select: { posts: true, followsTo: true, followsFrom: true } }
-    }
+    include: { _count: { select: { posts: true, followsTo: true, followsFrom: true } } }
   });
   if (!user) return err('المستخدم غير موجود', 404);
 
-  const posts = await prisma.post.findMany({
-    where: { authorId: user.id },
-    orderBy: { createdAt: 'desc' },
-    take: 30,
-    include: POST_INCLUDE
-  });
+  const [profilePosts, followRow] = await Promise.all([
+    prisma.post.findMany({
+      where: { authorId: user.id },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      include: POST_INCLUDE
+    }),
+    viewerId && viewerId !== user.id
+      ? prisma.follow.findUnique({
+          where: { followerId_followingId: { followerId: viewerId, followingId: user.id } },
+          select: { id: true }
+        })
+      : Promise.resolve(null)
+  ]);
 
   const { passwordHash: _p, ...u } = user;
   return ok({
@@ -383,9 +425,10 @@ export async function handleUserProfile(username: string) {
       createdAt: u.createdAt.toISOString(),
       postsCount: user._count.posts,
       followersCount: user._count.followsTo,
-      followingCount: user._count.followsFrom
+      followingCount: user._count.followsFrom,
+      isFollowing: Boolean(followRow)
     },
-    posts: posts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() }))
+    posts: profilePosts.map((p) => ({ ...p, createdAt: p.createdAt.toISOString(), updatedAt: p.updatedAt.toISOString() }))
   });
 }
 
@@ -601,4 +644,57 @@ export async function handleCronCleanup() {
     where: { readAt: { not: null, lt: cutoff } }
   });
   return ok({ deletedNotifications: deleted.count });
+}
+
+/* ============================================================
+   الجزء 48 — تغيير كلمة المرور
+   ============================================================ */
+export const PasswordChangeSchema = z.object({
+  currentPassword: z.string().min(8).max(128),
+  newPassword: z.string().min(8).max(128)
+});
+
+export async function handleChangePassword(body: unknown) {
+  const session = await requireUser();
+  const parsed = PasswordChangeSchema.safeParse(body);
+  if (!parsed.success) return err('كلمة المرور يجب أن تكون 8 أحرف على الأقل', 422);
+
+  const user = await prisma.user.findUnique({ where: { id: session.id }, select: { passwordHash: true } });
+  if (!user?.passwordHash) return err('لا يوجد حساب بكلمة مرور', 400);
+
+  const bcrypt = await import('bcryptjs');
+  const valid = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
+  if (!valid) return err('كلمة المرور الحالية غير صحيحة', 403);
+
+  await prisma.user.update({
+    where: { id: session.id },
+    data: { passwordHash: await hashPassword(parsed.data.newPassword) }
+  });
+  return ok({ ok: true });
+}
+
+/* ============================================================
+   الجزء 49 — بدء محادثة
+   ============================================================ */
+export async function handleStartConversation(body: unknown) {
+  const session = await requireUser();
+  const parsed = z.object({ userId: z.string().min(1) }).safeParse(body);
+  if (!parsed.success) return err('بيانات غير صالحة', 422);
+  if (parsed.data.userId === session.id) return err('لا يمكنك مراسلة نفسك', 400);
+
+  const peer = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: { id: true, username: true, name: true, avatarUrl: true }
+  });
+  if (!peer) return err('المستخدم غير موجود', 404);
+
+  // ترتيب المعرّفين يضمن سجلاً واحداً لكل زوج بغض النظر عن البادئ
+  const [userAId, userBId] = [session.id, peer.id].sort();
+  const convo = await prisma.conversation.upsert({
+    where: { userAId_userBId: { userAId: userAId!, userBId: userBId! } },
+    create: { userAId: userAId!, userBId: userBId! },
+    update: {}
+  });
+
+  return ok({ id: convo.id, peer, lastMessage: null, lastMessageAt: convo.lastMessageAt.toISOString(), unreadCount: 0 });
 }

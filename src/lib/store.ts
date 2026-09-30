@@ -57,14 +57,21 @@ interface FiltersSlice {
 }
 
 /* ---------- المحتوى ---------- */
-interface FeedKey { key: string }
 interface ContentSlice {
   feeds: Record<string, Paginated<Post>>;
   setFeed: (key: string, data: Paginated<Post>) => void;
   appendFeed: (key: string, data: Paginated<Post>) => void;
   patchPost: (id: string, patch: Partial<Post>) => void;
+  prependPost: (post: Post) => void;
   removePost: (id: string) => void;
   resetFeed: (key: string) => void;
+}
+
+/* ---------- نافذة النشر ---------- */
+interface ComposeSlice {
+  composerOpen: boolean;
+  openComposer: () => void;
+  closeComposer: () => void;
 }
 
 /* ---------- الإشعارات ---------- */
@@ -103,19 +110,28 @@ interface PwaSlice {
 /* ---------- التركيب النهائي ---------- */
 export type Store = SessionSlice & UiSlice & ThemeSlice & SoundSlice &
   FiltersSlice & ContentSlice & NotificationsSlice & MessagingSlice &
-  NetworkSlice & PwaSlice;
+  NetworkSlice & PwaSlice & ComposeSlice;
 
 export const useStore = create<Store>()(
   persist(
-    (set, get) => ({
+    (set, _get) => ({
       /* --- session --- */
       user: null,
       status: 'idle',
       setUser: (u) => set({ user: u, status: u ? 'authenticated' : 'unauthenticated' }),
       setStatus: (s) => set({ status: s }),
       signout: async () => {
-        try { await fetch('/api/auth/signout', { method: 'POST' }); } catch { /* نتجاهل */ }
-        set({ user: null, status: 'unauthenticated', unreadCount: 0, items: [] });
+        // NextAuth يتطلّب رمز CSRF مع طلب الخروج
+        try {
+          const csrfRes = await fetch('/api/auth/csrf');
+          const { csrfToken } = (await csrfRes.json()) as { csrfToken?: string };
+          await fetch('/api/auth/signout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ csrfToken: csrfToken ?? '', callbackUrl: '/' })
+          });
+        } catch { /* نتجاهل: نُنهي الجلسة محلياً على أي حال */ }
+        set({ user: null, status: 'unauthenticated', unreadCount: 0, items: [], feeds: {} });
       },
 
       /* --- ui --- */
@@ -183,6 +199,15 @@ export const useStore = create<Store>()(
         );
         return { feeds };
       }),
+      prependPost: (post) => set((st) => {
+        const feeds = Object.fromEntries(
+          Object.entries(st.feeds).map(([k, v]) => [
+            k,
+            { ...v, items: [post, ...v.items.filter((p) => p.id !== post.id)] }
+          ])
+        );
+        return { feeds };
+      }),
       removePost: (id) => set((st) => {
         const feeds = Object.fromEntries(
           Object.entries(st.feeds).map(([k, v]) => [
@@ -228,7 +253,12 @@ export const useStore = create<Store>()(
       canInstall: false,
       dismissedInstall: false,
       setInstallPrompt: (e) => set({ installPromptEvent: e, canInstall: Boolean(e) }),
-      dismissInstall: () => set({ dismissedInstall: true, canInstall: false })
+      dismissInstall: () => set({ dismissedInstall: true, canInstall: false }),
+
+      /* --- compose --- */
+      composerOpen: false,
+      openComposer: () => set({ composerOpen: true }),
+      closeComposer: () => set({ composerOpen: false })
     }),
     {
       name: 'khayal-store',

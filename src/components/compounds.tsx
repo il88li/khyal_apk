@@ -3,8 +3,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
 import { Avatar, Badge, Button, Divider, Dropdown, IconButton, toast } from './ui';
+import type { ReactNode } from 'react';
 import { cn, formatRelativeTime, formatCount, truncate, copyToClipboard } from '@/lib/utils';
-import type { Post, User, Comment, Notification, Conversation } from '@/lib/types';
+import type { Post, User, Comment, Notification, Conversation, Message } from '@/lib/types';
 import { S } from '@/lib/strings';
 import { useStore } from '@/lib/store';
 
@@ -413,3 +414,169 @@ export function CommentRow({ comment, canDelete, onDelete }: CommentRowProps) {
       ) : null}
     </div>
   );
+}
+
+/* ============================================================
+   الجزء 12 — صف الإشعار
+   ============================================================ */
+export interface NotificationRowProps {
+  item: Notification;
+  onRead?: (id: string) => void;
+}
+
+const NOTIF_ICON: Record<Notification['type'], ReactNode> = {
+  like: I.heart(true),
+  comment: I.comment,
+  follow: I.follow,
+  mention: I.comment,
+  system: I.check
+};
+
+const NOTIF_TEXT: Record<Notification['type'], string> = {
+  like: 'أعجب بمنشورك',
+  comment: 'علّق على منشورك',
+  follow: 'بدأ بمتابعتك',
+  mention: 'أشار إليك',
+  system: 'تحديث من المنصة'
+};
+
+export function NotificationRow({ item, onRead }: NotificationRowProps) {
+  const body = (
+    <div className={cn(
+      'flex items-start gap-3 p-3 rounded-[var(--radius-xl)] transition-colors',
+      'hover:bg-[var(--color-surface-hover)]',
+      !item.readAt && 'bg-[var(--color-primary-soft)]'
+    )}>
+      <span className="relative shrink-0">
+        {item.actor ? (
+          <Avatar src={item.actor.avatarUrl} name={item.actor.name} size="md" />
+        ) : (
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-bg-muted)] text-[var(--color-fg-subtle)]">
+            {NOTIF_ICON[item.type]}
+          </span>
+        )}
+        <span
+          aria-hidden
+          className={cn(
+            'absolute -bottom-1 -end-1 inline-flex h-5 w-5 items-center justify-center rounded-full',
+            'bg-[var(--color-surface)] border border-[var(--color-border)] text-[10px]',
+            item.type === 'like' ? 'text-[var(--color-danger-500)]' : 'text-[var(--color-primary)]'
+          )}
+        >
+          {NOTIF_ICON[item.type]}
+        </span>
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-[var(--text-sm)] leading-snug">
+          {item.actor ? (
+            <span className="font-[var(--font-weight-semibold)]">{item.actor.name} </span>
+          ) : null}
+          <span className="text-[var(--color-fg-muted)]">{NOTIF_TEXT[item.type]}</span>
+        </p>
+        {item.body ? (
+          <p dir="auto" className="mt-1 text-[var(--text-xs)] text-[var(--color-fg-subtle)] line-clamp-2">
+            {truncate(item.body, 90)}
+          </p>
+        ) : null}
+        <time dateTime={item.createdAt} className="mt-1 block text-[var(--text-2xs)] text-[var(--color-fg-subtle)]">
+          {formatRelativeTime(item.createdAt)}
+        </time>
+      </div>
+      {!item.readAt ? (
+        <span aria-label="غير مقروء" className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[var(--color-primary)]" />
+      ) : null}
+    </div>
+  );
+
+  const href = item.postId ? `/post/${item.postId}` : item.actor ? `/u/${item.actor.username}` : null;
+  if (!href) return <div>{body}</div>;
+
+  return (
+    <Link href={href} onClick={() => onRead?.(item.id)} className="block">
+      {body}
+    </Link>
+  );
+}
+
+/* ============================================================
+   الجزء 13 — صف المحادثة وفقاعة الرسالة
+   ============================================================ */
+export function ConversationRow({
+  convo, active, onOpen
+}: {
+  convo: Conversation; active?: boolean; onOpen: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(convo.id)}
+      className={cn(
+        'w-full flex items-center gap-3 p-3 rounded-[var(--radius-xl)] text-start transition-colors',
+        active ? 'bg-[var(--color-primary-soft)]' : 'hover:bg-[var(--color-surface-hover)]'
+      )}
+    >
+      <Avatar src={convo.peer.avatarUrl} name={convo.peer.name} size="md" />
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-2">
+          <span className="text-[var(--text-sm)] font-[var(--font-weight-semibold)] truncate">{convo.peer.name}</span>
+          <time dateTime={convo.lastMessageAt} className="ms-auto text-[var(--text-2xs)] text-[var(--color-fg-subtle)]">
+            {formatRelativeTime(convo.lastMessageAt)}
+          </time>
+        </span>
+        <span className="mt-0.5 flex items-center gap-2">
+          <span className="flex-1 text-[var(--text-xs)] text-[var(--color-fg-subtle)] truncate">
+            {convo.lastMessage ?? S.messages.empty}
+          </span>
+          {convo.unreadCount > 0 ? (
+            <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--color-primary)] text-white text-[10px] font-bold">
+              {convo.unreadCount > 99 ? '99+' : convo.unreadCount}
+            </span>
+          ) : null}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+export function MessageBubble({ message, mine }: { message: Message; mine: boolean }) {
+  return (
+    <div className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+      <div
+        dir="auto"
+        className={cn(
+          'max-w-[78%] px-3.5 py-2 rounded-[var(--radius-xl)] text-[var(--text-sm)] whitespace-pre-wrap break-words',
+          mine
+            ? 'bg-[var(--color-primary)] text-[var(--color-fg-on-brand)] rounded-ee-[var(--radius-xs)]'
+            : 'bg-[var(--color-surface)] border border-[var(--color-border)] rounded-es-[var(--radius-xs)]'
+        )}
+      >
+        {message.body}
+        <time
+          dateTime={message.createdAt}
+          className={cn('mt-1 block text-[10px]', mine ? 'text-white/70' : 'text-[var(--color-fg-subtle)]')}
+        >
+          {formatRelativeTime(message.createdAt)}
+        </time>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   الجزء 14 — ترويسة قسم
+   ============================================================ */
+export function PageHeader({
+  title, description, action
+}: {
+  title: string; description?: string; action?: ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 pb-4">
+      <div className="min-w-0">
+        <h1 className="text-[var(--text-2xl)] font-[var(--font-weight-bold)]">{title}</h1>
+        {description ? <p className="mt-1 text-[var(--text-sm)] text-[var(--color-fg-muted)]">{description}</p> : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}

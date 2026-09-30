@@ -18,6 +18,9 @@ const CredentialsSchema = z.object({
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  // مطلوب عند التشغيل على مضيف غير Vercel (حاوية/منصة أخرى)
+  trustHost: true,
+  // الجلسة رمزية (JWT): لا استعلام قاعدة بيانات على كل طلب — مهم للتوسّع
   session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 30 },
   pages: { signIn: '/signin' },
   providers: [

@@ -14,6 +14,19 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async signup(input: { email: string; password: string; name: string; username: string }): Promise<{ id: string }> {
+    return req('/api/signup', { method: 'POST', body: JSON.stringify(input) });
+  },
+
+  async bookmarks(cursor?: string | null): Promise<Paginated<Post>> {
+    const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    return req<Paginated<Post>>(`/api/bookmarks${q}`);
+  },
+
+  async changePassword(input: { currentPassword: string; newPassword: string }) {
+    return req('/api/me/password', { method: 'POST', body: JSON.stringify(input) });
+  },
+
   async feed(params: { sort: PostSort; tags?: string[]; models?: string[]; cursor?: string | null }): Promise<Paginated<Post>> {
     const q = new URLSearchParams({ sort: params.sort });
     if (params.tags?.length) q.set('tags', params.tags.join(','));
@@ -47,7 +60,7 @@ export const api = {
   },
 
   async deleteComment(postId: string, id: string) {
-    return req(`/api/posts/${postId}/comments/${id}`, { method: 'DELETE' });
+    return req(`/api/comments/${id}?postId=${encodeURIComponent(postId)}`, { method: 'DELETE' });
   },
 
   async profile(username: string): Promise<{ user: User; posts: Post[] }> {
@@ -86,6 +99,10 @@ export const api = {
 
   async sendMessage(conversationId: string, body: string): Promise<Message> {
     return req(`/api/messages/conversations/${conversationId}`, { method: 'POST', body: JSON.stringify({ body }) });
+  },
+
+  async startConversation(userId: string): Promise<Conversation> {
+    return req('/api/messages/conversations', { method: 'POST', body: JSON.stringify({ userId }) });
   },
 
   async report(input: { targetType: 'post' | 'user' | 'comment'; targetId: string; reason: string; note?: string }) {
