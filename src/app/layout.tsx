@@ -16,7 +16,8 @@ const plex = IBM_Plex_Sans_Arabic({
 export const metadata: Metadata = {
   title: { default: 'خَيال', template: '%s · خَيال' },
   description: 'منصة عربية لمشاركة واكتشاف برومبتات الصور المُنشأة بالذكاء الاصطناعي.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://khayal.app'),
+  // || وليس ??: في CI قد يُمرَّر المتغيّر كسلسلة فارغة عند غياب السرّ، وnew URL('') يرمي خطأ
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://khayal.app'),
   applicationName: 'خَيال',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'خَيال' },
